@@ -150,6 +150,11 @@ The mathematical foundations of Q-Autuam are machine-checked in Lean 4 + Mathlib
 | `ComplexHashRing.lean` | `hash_in_P` | `H(x) = (0,x)` is decidable in O(n); not NP-hard |
 | `ComplexHashRing.lean` | `fullHashEquiv` | `BitVec n × BitVec n ≃ MyComplex n` (ring isomorphism) |
 | `ComplexHashRing.lean` | `I_sq_neg_one` | `I² = −1` in `MyComplexR R` for any `CommRing R` |
+| `TopologicalVerification.lean` | `carry_knot_singularity` | `K(a,F,F)=F` erasure; `K(a,T,T)=T` saturation — reversible iff `b≠cin` |
+| `TopologicalVerification.lean` | `carry_knot_reversible_of_ne` | `b≠cin → ∃ a, K(a,b,cin)=out` (8-case, zero-sorry) |
+| `SHA256CarryMatrix.lean` | `weighted_rows_sum` | `Σ2ⁱxᵢ+Σ2ⁱyᵢ+Σ2ⁱzᵢ = Σ2ⁱsᵢ+Σ2ⁱ⁺¹cᵢ` (`Fin 32` CSA, zero-sorry) |
+| `SHA256CarryMatrix.lean` | `chFast_eq_ch` | `z⊕(x∧(y⊕z)) = (x∧y)⊕(¬x∧z)` via `getLsbD` |
+| `SHA256Schedule.lean` | `messageSchedule_correct` | `IsMessageSchedule block (scheduleOfArray block)` (Array.get, 16→64) |
 
 **Root theorem** ([`lean/TrigCore.lean`](lean/TrigCore.lean)):
 ```lean
@@ -190,6 +195,22 @@ Formalises the F₂ dual ring where `ε² = 0` and `ε ≠ 0`, then establishes 
 
 Establishes the complexity-class boundary for the imaginary hash and constructs the full ring infrastructure. `H(x) = (0, x)` — the embedding of a bitvector into the imaginary axis of `MyComplex n` — is proved to lie in **P** (decidable in O(n)), with an explicit argument that no NP-hardness reduction applies because the image is a fixed linear subspace. `fullHashEquiv` gives a ring isomorphism `BitVec n × BitVec n ≃ MyComplex n`, confirming the hash is a bijection at the type level. The file defines `MyComplexR R` as a `CommRing` over any `CommRing R`, proves `I² = −1` in `MyComplexR R`, shows `negImagFunctor` has period 4 in the general ring (collapsing to period 2 in `ZMod 2`), and constructs the scalar embedding ring homomorphism `R →+* MyComplexR R` needed for the module structure underlying the Q-Autuam intent metric.
 
+### [`lean/TopologicalVerification.lean`](lean/TopologicalVerification.lean) — §11 Singularity Duality
+
+Implements Ahmad's corrected carry-knot duality (Aug 2026). Proves erasure `K(a,F,F)=F` and saturation `K(a,T,T)=T` by `cases a <;> simp`; corrects truth table to `reversible ↔ b≠cin` (XOR, off-diagonal), not `b∨cin` — counterexample `b=T,cin=T,out=F` disproves ∨ (7 Lean errors). Provides `carry_knot_reversible_of_ne` (`b≠cin → ∃ a, K=out` via `cases b <;> cases cin <;> cases out <;> simp_all`), `carry_knot_or_condition_not_sufficient`, `carry_knot_witness_TF/FT`. Honest accounting: singularity is real, no O(1) preimage claim.
+
+### [`lean/SHA256CarryMatrix.lean`](lean/SHA256CarryMatrix.lean)
+
+Single-round SHA-256 carry-matrix sketch for item-1 wiring. Defines `Word := BitVec 32`, exact `ch`/`chFast`/`maj`/`majFast` (FIPS 180-4), `faSum`/`faCarry` with `fullAdder_correct` (8-case `decide`), `CSAColumn`/`CarryMatrix := Fin 32 → CSAColumn`, weighted scaling `weighted_fullAdder_correct` (`Fin 32`, `pow_succ`/`ring_nf`), `xTerm`/`yTerm`/`zTerm`/`sumTerm`/`carryTerm`, `weighted_col_eq`, `weighted_rows_sum` (`Finset.sum_add_distrib` calc, zero-sorry) and `weighted_rows_sum_mod` (`% 2^32`). Round wiring `bigSigma0/1`, `State`, `t1`/`t2`/`round`, 5-addend `T1` via 3 CSA layers + final CPA (`csa1/2/3`, `t1ViaCSA`), and `CarryLayer`/`CarryTrace` / `sha256_carry_matrix` interface (`List Word → CarryTrace`, `sha256_t1/t2_carry_matrix`). Core CSA invariant zero-sorry; `csa_correct`/`t1ViaCSA_correct` remain `sorry` pending `toNat`/`getLsbD` bridge.
+
+### [`lean/SHA256Schedule.lean`](lean/SHA256Schedule.lean)
+
+Safe array-based message-schedule `W[t]` expansion (`16 → 64`). Uses `Array Word` with `Array.get` and `Fin` proofs throughout: `initialSchedule` (`Array.ofFn`, size 16), `extendSchedule w h16:16≤w.size` (`Array.get ⟨t-16,_⟩` etc.), `buildScheduleAux fuel w h16` (`size = w.size+fuel`), `messageScheduleArray = buildScheduleAux 48 initial` (size 64), `get_extendSchedule_old/new`, `ScheduleInvariant` (`16≤w.size ∧ ∀ i<16 w.get=block ∧ ∀ t≥16 recurrence`), `extendSchedule_invariant` / `buildScheduleAux_invariant` with `CanExtend` budget, `scheduleOfArray : Schedule = Fin 64 → Word` via safe `get`, `schedule_initial_words`, `schedule_recurrence`, `IsMessageSchedule`, `messageSchedule_correct`. CSA trace for schedule `W[t]=CSA(W[t-16],σ0,W[t-15],W[t-7])→CSA(sum0,carry0,σ1(W[t-2]))` described via `ScheduleStepTrace` (2 layers, each `weighted_rows_sum`).
+
+### [`agda/TPE1/SHA256/Invariants.agda`](agda/TPE1/SHA256/Invariants.agda)
+
+Structural Agda spec (`--safe --without-K`) distilling Rust `DeterministicExtractor` invariants. Defines `_⊕_`/`t∧`/`carry-knot`, `witness` (`T,T→not out`, `T,F→out`, `F,T→out`, `F,F→false`), `IsSingular b cin = b≡cin`, corrected `NotSingular = ¬(b≡cin)` (`b≢cin`, XOR — persona's `b∨cin` fails at `(T,T)`), `invariant-singularity-erasure/saturation`, `invariant-reversibility` (4 exhaustive `refl` cases on `b≠cin`), `invariant-unroll` via `State` record. Honest header: proves forward correctness + witness inverse on reversible locus only.
+
 ---
 
 ## Hardware Implementations
@@ -201,6 +222,30 @@ Bare-metal CUDA C targeting Ampere (`sm_80`). Implements F₂ dual-number arithm
 ### [`hardware/dual_f2_qasm.qasm`](hardware/dual_f2_qasm.qasm)
 
 OpenQASM 3.0 circuit implementing the F₂ dual-number embedding as a quantum operation. An ancillary sink qubit absorbs the `ε² = 0` nilpotency condition: the ancilla is prepared in |0⟩ and any second-order term routes into it, leaving the first-order dual component on the primary register. The phase invariant `θ = 89/2462` appears as a rotation gate parameter — `rz(2π × 89/2462)` on the imaginary-component qubit — encoding the sovereign-compute structural constant directly into the quantum phase. The circuit verifies that the F₂ dual embedding commutes with this phase rotation: embedding then rotating gives the same result as rotating then embedding, the quantum analogue of the `negImagFunctor` commutativity proved in `DualNumbers.lean` and `ComplexHashRing.lean`.
+
+### [`src/topological/sha256_csa.rs`](src/topological/sha256_csa.rs)
+
+Corrected Rust CSA trace mirroring `SHA256CarryMatrix.lean` (`Fin 32 → CSAColumn`, `weighted_rows_sum`). Defines `CsaColumn {x,y,z,sum,carry}`, `CsaLayer {inputs[3], sum, carry_bits, carry, columns[32]}`, `csa_layer(x,y,z)` (per-bit `sum_i=xi^yi^zi`, `carry_i=Maj`, `debug_assert xi+yi+zi==sum_i+2*carry_i`), `verify_csa_layer` (exact `u64` + mod `2^32` `wrapping_add`). Keeps `ch`/`maj`/`big_sigma0/1` as Boolean-word addends, not carries. Composes 5-addend `T1 = h+Σ1(e)+Ch+Kt+Wt` via 3 CSA layers + final CPA (`t1_via_csa`, each layer verified), `t2`/`t2_via_csa` (2 addends, zero-padded for uniform interface), `Sha256RoundMatrix` (separates `ch_efg`/`maj_abc` from CSA carries), `LeanCsaMatrix` bridge (`From<&CsaLayer>` — Rust provides `x,y,z`, Lean reconstructs `faSum`/`faCarry`). `rustc --crate-type lib` OK.
+
+### [`src/topological/sha256_schedule.rs`](src/topological/sha256_schedule.rs)
+
+Safe schedule expansion mirroring `SHA256Schedule.lean` (`Array.get` with proofs). `initial_schedule` (16), `extend_schedule` (`debug_assert w.len≥16`), `build_schedule_aux` (48 steps to 64), `message_schedule_array`, `schedule_of_array` (`[Word;64]`), `is_message_schedule`, `schedule_step_trace` (2 CSA layers per `t≥16`: `CSA(W[t-16],σ0,W[t-15],W[t-7]) → CSA(sum0,carry0,σ1(W[t-2]))`, verified, asserts `w_t==schedule[t]`), `compile_schedule_to_traces` (48 traces), `LeanScheduleMatrix` bridge. Tests for sizes, recurrence, CSA, and FIPS `"abc"` block.
+
+### [`src/topological/aegis_bridge.rs`](src/topological/aegis_bridge.rs) — Singularity Sieve (§11)
+
+Implements Ahmad's corrected duality (`is_singularity(b,cin)=b==cin`, both `(F,F)` erasure→0 and `(T,T)` saturation→1, reversible iff `b≠cin`, not `b∨cin`). Provides `carry_knot(a,b,cin)=(a∧b)⊕(cin∧(a⊕b))`, `TopologicalPipeline::generate_singularity_seeds` (identity-biased every 7th gen), `collapse_depth`/`execute_singularity_sieve` (max depth, `O(n)` not `O(2^n)` — honest: `E[depth]≈1.33`, remains `Θ(2^n)` classical / `Θ(2^{n/2})` quantum).
+
+### [`src/topological/deterministic_extractor.rs`](src/topological/deterministic_extractor.rs)
+
+Deterministic unrolling post-horizon. `carry_knot_witness(b,cin,out)->Option<bool>` (`T,F→out`, `F,T→out`, `F,F,false→Some(false)`, `F,F,true→None`, `T,T,true→Some(false)`, `T,T,false→None`), `TopologicalState`, `DeterministicExtractor::unroll_preimage` (63..0, 31..0, singularity guard `is_singularity` + `expected` check, `debug_assert carry_knot(a,b,cin)==out`), `O(64·32)` post-horizon, not a break. Tests for reversible, singularities, no-panic.
+
+### [`circuits/CarryWitnessVerifier.circom`](circuits/CarryWitnessVerifier.circom)
+
+R1CS verifier for the witness. Enforces `a = out*(b⊕cin)` (`b⊕cin = b+cin-2*b*cin`), forbids UNSAT singular `(1-xor)*(out-b)==0` (`(F,F)→0`, `(T,T)→1`), boolean constraints, and round-trip `carry_knot(a,b,cin)===out` (`a⊕b`, `a∧b`, `cin∧(a⊕b)`). Public `[out]`.
+
+### [`spec/topological/HOLOGRAPHIC_WORM_SPEC.md`](spec/topological/HOLOGRAPHIC_WORM_SPEC.md)
+
+Distills holographic-quantum analogies (`H_μ`, `λ_L=0.428`, Page, Hayden-Preskill, `Ω_master`/`Û_Master`) as **speculative** — explicit `WARNING`: `2²⁵⁶→1`, `O(1) constant`, `batch 10k in 2µs` are **UNPROVEN**, contradict Grover lower bound. Retained as operational anchor (`θ₀=89/2462`, `e`, `λ`, WORM hash), not decryption key. Calibration protocol and honest pipeline documented.
 
 ---
 
@@ -220,11 +265,19 @@ print(result['depth'])         # optimal recursion depth k*
 ```
 
 ```bash
-# Run tests
+# Run Python tests
 python -m pytest tests/
 
-# Type-check Lean proofs (requires Lean 4 + Mathlib)
-lake build
+# Type-check Lean proofs (requires Lean 4.33.1 + Mathlib)
+lake build  # or lean lean/TopologicalVerification.lean, lean/SHA256CarryMatrix.lean, lean/SHA256Schedule.lean
+
+# Check Rust CSA / schedule (no Cargo.toml at root; standalone)
+rustc --edition 2021 --crate-type lib src/topological/sha256_csa.rs -o /tmp/sha256_csa.rmeta
+rustc --edition 2021 --crate-type lib src/topological/sha256_schedule.rs -o /tmp/sha256_schedule.rmeta
+rustc --edition 2021 --crate-type lib src/topological/aegis_bridge.rs -o /tmp/aegis.rmeta
+rustc --edition 2021 --crate-type lib src/topological/deterministic_extractor.rs -o /tmp/det.rmeta
+# Agda (requires agda-stdlib 2.1+)
+agda --safe agda/TPE1/SHA256/Invariants.agda
 ```
 
 ---
@@ -240,6 +293,31 @@ lake build
 | P5 | Intent ∈ [0,1] | Non-negative ratio, denominator = sum of numerator terms |
 | P6 | Algorithm terminates | Finite enumeration, decidable Horn SAT |
 | P7 | Runtime O(m^89 + k_max·n) | Constant-parameter FPT complexity |
+| P8 | CSA: `x+y+cin = s+2c` per bit | `cases x <;> cases y <;> cases cin <;> decide` (`fullAdder_correct`) |
+| P9 | Weighted CSA: `Σ2ⁱxᵢ+Σ2ⁱyᵢ+Σ2ⁱzᵢ = Σ2ⁱsᵢ+Σ2ⁱ⁺¹cᵢ` | `Fin 32`, `weighted_fullAdder_correct` + `Finset.sum_add_distrib` |
+| P10 | Mod `2^32`: same equality `% 2^32` | `congrArg (· % wordModulus)` |
+| P11 | `chFast = ch` (and `maj` variants) | `getLsbD` + `ch_bit_equiv` / `bv_decide` |
+| P12 | Schedule: `messageSchedule_correct` | `Array.get` + `ScheduleInvariant` (16→64, 48 steps) |
+| P13 | Carry-knot duality: `K(a,F,F)=F`, `K(a,T,T)=T`, reversible ↔ `b≠cin` | `cases`/`simp_all` (zero-sorry, §11) |
+| P14 | Witness `b≠cin → ∃ a, K=out` | `cases b <;> cases cin <;> cases out <;> simp_all` |
+| P15 | CSA Rust: `X+Y+Z = S+2C` + mod `2^32` | `verify_csa_layer` (u64 + wrapping_add) |
+
+---
+
+## Honest Accounting (August 2026 Wiring)
+
+What the new proofs establish:
+- ✅ `SHA256CarryMatrix.lean`: CSA `Fin 32` weighted invariant is a correct arithmetic decomposition of 3-input `x+y+z` into `s+2c` (unmodded + mod `2^32`). It **postpones** carry propagation, it doesn't eliminate it.
+- ✅ `SHA256Schedule.lean`: `W[t]` expansion `16 → 64` is safe via `Array.get` and preserves `IsMessageSchedule` (FIPS 180-4 §6.2.2).
+- ✅ `TopologicalVerification.lean §11` + `Invariants.agda`: `carry-knot` erasure/saturation are real — reversible exactly when `b≠cin` (XOR), not `b∨cin`. Witness is bijection on that locus.
+- ✅ Rust `sha256_csa.rs`/`sha256_schedule.rs`/`aegis_bridge.rs`/`deterministic_extractor.rs` mirror Lean/Agda and verify `wrapping_add` identities.
+
+What they do **not** establish:
+- ✗ No Lean/Agda theorem `∀ H, ∃ M, SHA256(M)=H` with `O(1)` witness. Search remains `Θ(2^n)` classical / `Θ(2^{n/2})` quantum (Grover lower bound, `complexity_budget.rs`).
+- ✗ Singularity (`b==cin`) yields 2-way collisions per bit (`E[run]≈1.33`), not `2^n` pruning.
+- ✗ Holographic `Ω_master`/`Û_Master` universal projection (`2²⁵⁶→1`, `O(1)`, `batch 10k in 2µs`) is **unproven** — documented as speculative in `HOLOGRAPHIC_WORM_SPEC.md` and retained only as operational anchor (`θ₀=89/2462`, `e`, `λ`, WORM hash).
+
+Treat `braid engine` as a separately verified homomorphism (`BraidWord → Circuit`), not an inferred break. Correctness ≠ efficiency; `braidLength`/`circuitSize` bounds must be proved independently.
 
 ---
 
