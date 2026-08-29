@@ -195,4 +195,79 @@ theorem carry_knot_mirror_length (A B : Nat) :
   - Application to ZK-SNARK circuit verification (not preimage search)
 -/
 
+-- ===========================================================================
+-- § 8  TPE-1 SHA-256 Boolean carry-knot proofs (zero-sorry, via exhaustion)
+-- ===========================================================================
+
+namespace SHA256CarryKnot
+
+-- The F₂ carry-knot: models SHA-256 modular addition carry bit.
+-- Cout = (A AND B) XOR (Cin AND (A XOR B))
+def top_xor (a b : Bool) : Bool := a != b
+def top_commutator (a b : Bool) : Bool := a && b  -- Borromean AND
+def top_carry_knot (a b cin : Bool) : Bool :=
+  top_xor (top_commutator a b) (top_commutator cin (top_xor a b))
+
+-- SHA-256 Majority gate: Maj(a,b,c) = (a AND b) XOR (a AND c) XOR (b AND c)
+def classical_maj (a b c : Bool) : Bool :=
+  (a && b) != ((a && c) != (b && c))
+
+/-- THEOREM 1 (zero-sorry): The Borromean carry-knot equals the SHA-256 Majority gate.
+    Proves the TPE-1 is a CORRECT IMPLEMENTATION of SHA-256 carry arithmetic.
+    NOTE: This proves correctness of the forward direction ONLY — not preimage recovery. -/
+theorem carry_knot_is_maj (a b c : Bool) :
+    top_carry_knot a b c = classical_maj a b c := by
+  cases a <;> cases b <;> cases c <;> rfl
+
+/-- THEOREM 2 (zero-sorry): Borromean commutator annihilates on left identity. -/
+theorem commutator_annihilation_left (b : Bool) :
+    top_commutator false b = false := by
+  cases b <;> rfl
+
+/-- THEOREM 3 (zero-sorry): Borromean commutator annihilates on right identity. -/
+theorem commutator_annihilation_right (a : Bool) :
+    top_commutator a false = false := by
+  cases a <;> rfl
+
+/-- THEOREM 4 (zero-sorry): Carry-knot "Untie-Point" — if A=B=0, carry output = 0.
+    This is the O(1) warp cascade trigger in the PTX kernel. -/
+theorem carry_untie_point (cin : Bool) :
+    top_carry_knot false false cin = false := by
+  cases cin <;> rfl
+
+/-- THEOREM 5 (zero-sorry): If Cin=A=B=0, carry output = 0 (stronger boundary). -/
+theorem avalanche_collapse (a b cin : Bool)
+    (ha : a = false) (hb : b = false) (hc : cin = false) :
+    top_carry_knot a b cin = false := by
+  subst ha; subst hb; subst hc; rfl
+
+/-
+  NOTE ON "REVERSIBILITY" CLAIM:
+
+  The PERSONA claimed theorem "carry_knot_reversible_a":
+    ∀ b cin out, ∃ a, top_carry_knot a b cin = out
+
+  This is FALSE. Counterexample: b=false, cin=false, out=true.
+    top_carry_knot a false false = (a AND false) XOR (false AND (a XOR false))
+                                 = false XOR false = false   (for ALL a)
+  So no a produces out=true — the existential fails.
+
+  What theorems 1-5 actually prove:
+  ✓ The carry-knot is a correct implementation of SHA-256 Majority gate
+  ✓ Local boundary conditions (identity inputs → identity output)
+  ✗ SHA-256 preimage recovery is NOT proved by any of these
+  ✗ "Reversibility" is NOT proved — the function is NOT injective
+
+  The complexity of SHA-256 preimage search is unchanged by this representation.
+  See spec/topological/TOPOLOGICAL_SAT_SPEC.md for the honest complexity analysis.
+-/
+
+/-- Disproof of the reversibility claim: for b=false, cin=false, the output
+    is always false regardless of a. There is no a giving output=true. -/
+theorem carry_knot_not_surjective_when_b_cin_false (a : Bool) :
+    top_carry_knot a false false = false := by
+  cases a <;> rfl
+
+end SHA256CarryKnot
+
 end QautuamMath.TopologicalVerification
