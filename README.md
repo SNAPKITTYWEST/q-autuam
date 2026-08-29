@@ -13,7 +13,7 @@
 
 > *A program's intent is not what it says it does. It is the ratio of emergence to entropy in its prime-annotated Boolean support, evaluated at the optimal recursive trigonometric depth.*
 
-**What this repo is (honest):** three disjoint projects in one repo, audited file-by-file 2026-08-29. No lakefile; `lake build` requires `Lean 4.33.1 + Mathlib` manual init. 31 tracked files. 7 real `sorry`s (not comment `Zero-sorry`). Everything else zero-sorry is machine-checked; everything speculative is explicitly labeled speculative. No O(1) SHA-256 break is proven.
+**What this repo is ** three disjoint projects in one repo, audited file-by-file 2026-08-29. No lakefile; `lake build` requires `Lean 4.33.1 + Mathlib` manual init. 31 tracked files. 7 real `sorry`s (not comment `Zero-sorry`). Everything else zero-sorry is machine-checked; everything speculative is explicitly labeled speculative. No O(1) SHA-256 break is proven.
 
 | Layer | Claim | Lean/Rust Status | Complexity |
 |---|---|---|---|
