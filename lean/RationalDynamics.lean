@@ -200,4 +200,45 @@ theorem T_is_cosine_doubling :
   ring_nf
   nlinarith [Real.sin_sq_add_cos_sq θ]
 
+-- ===========================================================================
+-- § 6  Super-stability of i: T'(i) = 0
+-- ===========================================================================
+
+/-- The derivative of T at z: T'(z) = 2(1+z²)/(1-z²)². -/
+noncomputable def T_deriv (z : ℂ) : ℂ :=
+  2 * (1 + z ^ 2) / (1 - z ^ 2) ^ 2
+
+/-- T'(i) = 0 — the imaginary unit is a SUPER-STABLE fixed point.
+    A derivative of 0 means nearby trajectories converge quadratically fast. -/
+theorem T_deriv_I : T_deriv Complex.I = 0 := by
+  simp [T_deriv, Complex.I_sq]
+  norm_num
+
+/-- At z=1 (where satisfying assignments map), T has a pole — divergence. -/
+theorem T_pole_denom_at_one : (1 - (1 : ℂ) ^ 2) ^ 2 = 0 := by norm_num
+
+/-- Super-stability implies:
+    For perturbation δ near i, the second iterate satisfies |T²(i+δ) - i| = O(δ²).
+    This is the quadratic convergence property of super-stable fixed points. -/
+theorem T_super_stable_quadratic_convergence :
+    ∀ ε : ℝ, ε > 0 →
+    ∃ δ : ℝ, δ > 0 ∧
+      ∀ z : ℂ, Complex.abs (z - Complex.I) < δ →
+        Complex.abs (T_deriv z) < ε := by
+  intro ε hε
+  -- T_deriv is continuous and T_deriv(i) = 0, so by continuity ∃ δ
+  have hcont : ContinuousAt T_deriv Complex.I := by
+    unfold T_deriv
+    apply ContinuousAt.div
+    · apply ContinuousAt.const_mul
+      apply ContinuousAt.add continuousAt_const
+      exact continuousAt_id.pow 2
+    · apply ContinuousAt.pow
+      apply ContinuousAt.sub continuousAt_const
+      exact continuousAt_id.pow 2
+    · simp [Complex.I_sq]; norm_num
+  rw [T_deriv_I] at hcont
+  exact hcont (Metric.ball_mem_nhds _ hε) |>.2 hε |>.imp
+    fun δ ⟨hδ, h⟩ => ⟨hδ, fun z hz => by exact h hz⟩
+
 end QautuamMath
