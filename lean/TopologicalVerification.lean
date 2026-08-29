@@ -332,6 +332,68 @@ theorem carry_knot_b_true_cin_true_always_true (a : Bool) :
   - "Singularity-seeding" is random search with a heuristic, not a break
 -/
 
+-- ===========================================================================
+-- § 11  CORRECTED SINGULARITY-REVERSIBILITY DUALITY (Ahmad — Zero-Sorry)
+-- ===========================================================================
+-- Implements Ahmad's corrected construction (2026-08-29). The previous
+-- truth table for (b=T, cin=T) was inverted; the corrected table (verified
+-- by exhaustive cases) is:
+--
+--   b   cin | a=T | a=F | Reversible?
+--   F    F  |  0  |  0  | NO  (singularity — erasure, all a ↦ 0)
+--   T    T  |  1  |  1  | NO  (dual singularity — saturation, all a ↦ 1)
+--   T    F  |  1  |  0  | YES (b ≠ cin)
+--   F    T  |  1  |  0  | YES (b ≠ cin)
+--
+-- Conclusion: reversible ↔ b != cin, NOT b ∨ cin.
+-- The ∨-condition fails at (T,T) with out=false as counterexample.
+-- This duality is the formal "Untie-Point": when b=c==0 the input a is
+-- annihilated (erased); when b=c==1 the output is saturated (stuck at 1).
+
+/-- THEOREM 5 (corrected, zero-sorry): Topological Singularity — erasure. -/
+theorem carry_knot_singularity (a : Bool) :
+    top_carry_knot a false false = false := by
+  cases a <;> simp [top_carry_knot, top_xor, top_commutator]
+
+/-- DUAL SINGULARITY (zero-sorry): saturation at (T,T). -/
+theorem carry_knot_dual_singularity (a : Bool) :
+    top_carry_knot a true true = true := by
+  cases a <;> simp [top_carry_knot, top_xor, top_commutator]
+
+/-- CORRECTED THEOREM 6: Conditional reversibility holds iff b != cin.
+    If b and cin differ, the carry-knot is a bijection in a (covers both
+    (T,F) and (F,T) rows). Proved by exhaustive case analysis on b, cin, out. -/
+theorem carry_knot_reversible_of_ne (b cin out : Bool) (h : b != cin) :
+    Exists (fun a => top_carry_knot a b cin = out) := by
+  cases b <;> cases cin <;> cases out <;> simp_all [top_carry_knot, top_xor, top_commutator]
+
+/-- Explicit counterexamples: the ∨-condition is insufficient.
+    The original persona claimed (b=true ∨ cin=true) → ∃ a, K(a,b,cin)=out.
+    This is FALSE: b=T, cin=T, out=F has no witness (dual singularity). -/
+theorem carry_knot_or_condition_not_sufficient :
+    Not (forall (b cin out : Bool), (b = true \/ cin = true) -> Exists (fun a => top_carry_knot a b cin = out)) := by
+  intro h
+  have h1 := h true true false (Or.inl rfl)
+  rcases h1 with ⟨a, ha⟩
+  cases a <;> simp [top_carry_knot, top_xor, top_commutator] at ha
+
+theorem carry_knot_or_condition_counterexample :
+    Not (Exists (fun a => top_carry_knot a true true = false)) := by
+  intro h
+  rcases h with ⟨a, ha⟩
+  cases a <;> simp [top_carry_knot, top_xor, top_commutator] at ha
+
+/-- Witnesses for the reversible region (b ≠ cin): explicit construction. -/
+theorem carry_knot_witness_TF (out : Bool) : Exists (fun a => top_carry_knot a true false = out) := by
+  cases out
+  · exact ⟨false, by simp [top_carry_knot, top_xor, top_commutator]⟩
+  · exact ⟨true, by simp [top_carry_knot, top_xor, top_commutator]⟩
+
+theorem carry_knot_witness_FT (out : Bool) : Exists (fun a => top_carry_knot a false true = out) := by
+  cases out
+  · exact ⟨false, by simp [top_carry_knot, top_xor, top_commutator]⟩
+  · exact ⟨true, by simp [top_carry_knot, top_xor, top_commutator]⟩
+
 end SHA256CarryKnot
 
 end QautuamMath.TopologicalVerification

@@ -146,6 +146,105 @@ impl ScalingBenchmark {
     }
 }
 
+// ===========================================================================
+// § Singularity-driven preimage heuristic (Ahmad — corrected duality)
+// ===========================================================================
+// CORRECTED TRUTH TABLE (verified in lean/TopologicalVerification.lean §11):
+//   b=F,cin=F → K(a, F, F)=0 ∀ a (erasure singularity, 2-way collision)
+//   b=T,cin=T → K(a, T, T)=1 ∀ a (saturation singularity, 2-way collision)
+//   b≠cin     → K(_,b,cin) is bijective in a (reversible, no collision)
+// Only the off-diagonal (b≠cin) is reversible; the persona's
+// original claim (b ∨ cin) was false — counterexample b=T,cin=T,out=F.
+// The "singularity" is REAL (Lean: carry_knot_singularity, dual_singularity)
+// but it does NOT yield an exponential speedup. Pruning 2^m states by forcing
+// m singularities is a heuristic that reduces the *constant* of the search,
+// not its Ω(2^n) asymptotics. Honest complexity remains Θ(2^{n/2}) quantum
+// (complexity_budget.rs) / Θ(2^n) classical. See TOPOLOGICAL_SAT_SPEC.md.
+
+/// Pure Boolean carry-knot: Cout = (a ∧ b) ⊕ (cin ∧ (a ⊕ b))
+#[inline]
+pub fn carry_knot(a: bool, b: bool, cin: bool) -> bool {
+    (a & b) ^ (cin & (a ^ b))
+}
+
+/// True iff the carry-knot is singular (a is erased, output independent of a).
+#[inline]
+pub fn is_singularity(b: bool, cin: bool) -> bool {
+    b == cin // both (F,F) and (T,T) are singular; off-diagonal is reversible
+}
+
+/// Erasure singularity: (F,F) → 0 regardless of a.
+#[inline]
+pub fn is_erasure_singularity(b: bool, cin: bool) -> bool {
+    !b && !cin
+}
+
+/// Saturation singularity: (T,T) → 1 regardless of a.
+#[inline]
+pub fn is_saturation_singularity(b: bool, cin: bool) -> bool {
+    b && cin
+}
+
+/// Topological pipeline with singularity-targeted heuristic.
+pub struct TopologicalPipeline {
+    pub engine: SymbolicBraidEngine,
+}
+
+impl TopologicalPipeline {
+    pub fn new(n_strands: usize) -> Self {
+        Self { engine: SymbolicBraidEngine::new(n_strands) }
+    }
+
+    /// Generate singularity-dense seeds (heuristic, NOT a break).
+    /// Each seed biases (b,cin) toward (F,F) erasure states to create
+    /// "null-zones" where the message bit a is irrelevant (2× collision per event).
+    /// Depth D = number of consecutive singularities simulated.
+    /// NOTE: Expected D is geometric with p≈1/4 per step; E[D]≈1.33, not n.
+    pub fn generate_singularity_seeds(&self, _target_hash: &[u8], count: usize, word_len: usize) -> Vec<BraidWord> {
+        let mut seeds = Vec::with_capacity(count);
+        for i in 0..count {
+            let mut word = Vec::with_capacity(word_len);
+            for j in 0..word_len {
+                // Heuristic: every 7th position force identity (0) to simulate (F,F) null-zone.
+                // Otherwise random generator ±1..n_strands.
+                if (i + j) % 7 == 0 {
+                    word.push(0); // identity → models (F,F) erasure
+                } else {
+                    // Deterministic pseudo-random in [-n_strands, n_strands] \ {0}
+                    let g = ((i * 997 + j * 991) % self.engine.n_strands) as i32 + 1;
+                    let sign = if (i + j) % 2 == 0 { 1 } else { -1 };
+                    word.push(sign * g);
+                }
+            }
+            seeds.push(word);
+        }
+        seeds
+    }
+
+    /// Depth metric: number of annihilated commutators after free reduction.
+    /// On the RTX 3080 this would be a warp-sync `shfl.sync` accumulator.
+    pub fn collapse_depth(&self, initial: &BraidWord, reduced: &BraidWord) -> usize {
+        initial.len().saturating_sub(reduced.len()) / 4 // each commutator is 4 gens
+    }
+
+    /// Execute the sieve: reduce each seed and score by collapse depth.
+    /// Returns (best_seed_index, max_depth). Caller may then feed
+    /// (initial, reduced) to BraidAnnihilator.circom for ZK proof.
+    pub fn execute_singularity_sieve(&self, seeds: &[BraidWord]) -> Option<(usize, usize)> {
+        let mut best: Option<(usize, usize)> = None;
+        for (idx, seed) in seeds.iter().enumerate() {
+            let reduced = self.engine.free_reduce(seed);
+            let depth = self.collapse_depth(seed, &reduced);
+            match best {
+                None => best = Some((idx, depth)),
+                Some((_, d)) if depth > d => best = Some((idx, depth)),
+                _ => {}
+            }
+        }
+        best
+    }
+}
+
 #[cfg(kani)]
 mod kani_verification {
     use super::*;
@@ -243,5 +342,45 @@ mod tests {
     fn test_scaling_v1_collapses() {
         let b100 = ScalingBenchmark::compute(100);
         assert_eq!(b100.v1_hardware_status, "Underflow Collapse");
+    }
+
+    #[test]
+    fn test_carry_knot_singularity_erasure() {
+        // (F,F) always 0
+        assert_eq!(carry_knot(false, false, false), false);
+        assert_eq!(carry_knot(true, false, false), false);
+        assert!(is_erasure_singularity(false, false));
+        assert!(is_singularity(false, false));
+    }
+
+    #[test]
+    fn test_carry_knot_dual_singularity_saturation() {
+        // (T,T) always 1
+        assert_eq!(carry_knot(false, true, true), true);
+        assert_eq!(carry_knot(true, true, true), true);
+        assert!(is_saturation_singularity(true, true));
+        assert!(is_singularity(true, true));
+    }
+
+    #[test]
+    fn test_carry_knot_reversible_off_diagonal() {
+        // b != cin is reversible
+        assert_eq!(carry_knot(false, true, false), false);
+        assert_eq!(carry_knot(true, true, false), true);
+        assert_eq!(carry_knot(false, false, true), false);
+        assert_eq!(carry_knot(true, false, true), true);
+        assert!(!is_singularity(true, false));
+        assert!(!is_singularity(false, true));
+    }
+
+    #[test]
+    fn test_singularity_sieve_no_exponential_break() {
+        let pipe = TopologicalPipeline::new(10);
+        let seeds = pipe.generate_singularity_seeds(&[0u8; 32], 100, 64);
+        let best = pipe.execute_singularity_sieve(&seeds);
+        assert!(best.is_some());
+        let (_, depth) = best.unwrap();
+        // Depth is bounded by word_len/4; no exponential collapse
+        assert!(depth <= 16);
     }
 }
