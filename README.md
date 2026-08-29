@@ -133,9 +133,25 @@ The constant is a structural invariant. Q-Autuam is the language whose intent is
 
 ## Lean 4 Formal Proofs
 
-The recursive trigonometric layer is formally verified in Lean 4 + Mathlib.
+The mathematical foundations of Q-Autuam are machine-checked in Lean 4 + Mathlib across five interdependent files. The verification covers trigonometric closed forms, complex arithmetic, logarithm branch structure, dual-number hardware correspondence, and the complexity class of the imaginary hash.
 
-**Main theorem** ([`lean/TrigCore.lean`](lean/TrigCore.lean)):
+### Theorem Summary
+
+| File | Theorem | Statement |
+|------|---------|-----------|
+| `TrigCore.lean` | `trigCore_closed_form` | `cosCore θ n = cos(n·θ) ∧ sinCore θ n = sin(n·θ)` |
+| `ComplexCore.lean` | `euler_formula` | `exp(iθ) = cos θ + i·sin θ` (matrix path) |
+| `ComplexCore.lean` | `polar_decomp` | Every `z ≠ 0` factors as `r · (cos θ + i·sin θ)` |
+| `ComplexCore.lean` | `arg_multiplicative` | `arg(z·w) ≡ arg(z) + arg(w) (mod 2π)` |
+| `LogarithmExtensions.lean` | `branch_cut_jump` | `lim(t→0⁺) Log(−1+it) − Log(−1−it) = 2πi` |
+| `LogarithmExtensions.lean` | `negImagFunctor_period4` | `(negImagFunctor)⁴ = id`; period 2 in ZMod 2 |
+| `DualNumbers.lean` | `dual_f2_period2` | In F₂: `ε²=0`, `negImagFunctor` has period 2, not 4 |
+| `DualNumbers.lean` | `lop3_correspondence` | PTX `lop3.b32` implements F₂ dual-number multiplication |
+| `ComplexHashRing.lean` | `hash_in_P` | `H(x) = (0,x)` is decidable in O(n); not NP-hard |
+| `ComplexHashRing.lean` | `fullHashEquiv` | `BitVec n × BitVec n ≃ MyComplex n` (ring isomorphism) |
+| `ComplexHashRing.lean` | `I_sq_neg_one` | `I² = −1` in `MyComplexR R` for any `CommRing R` |
+
+**Root theorem** ([`lean/TrigCore.lean`](lean/TrigCore.lean)):
 ```lean
 theorem trigCore_closed_form (θ : ℝ) (n : ℕ) : TrigInvariant θ n
 -- where TrigInvariant θ n ↔
@@ -149,6 +165,42 @@ sin(a+b) = sin a cos b + cos a sin b
 ```
 
 The Chebyshev recurrence closes under these identities without needing external lemmas.
+
+---
+
+## Lean Library
+
+### [`lean/TrigCore.lean`](lean/TrigCore.lean)
+
+Foundation of the trig tower. Defines `cosCore` and `sinCore` as paired recursions mirroring the three-term Chebyshev recurrence `T_{n+2}(x) = 2x·T_{n+1}(x) − T_n(x)`, then proves the closed form `T_n(cos θ) = cos(nθ)` via coupled induction on both components simultaneously. The induction is two-step: base cases n=0 and n=1; the step folds angle-addition identities directly without appealing to any external Mathlib trigonometry lemmas beyond `Real.cos_add` and `Real.sin_add`. The final theorem `trigCore_closed_form` packages both components as the predicate `TrigInvariant θ n`, establishing that Q-Autuam's recursive operator is provably identical to Chebyshev evaluation at integer multiples of θ.
+
+### [`lean/ComplexCore.lean`](lean/ComplexCore.lean)
+
+Twelve-section development of complex arithmetic grounded in 2×2 real matrix representation. Sections proceed linearly: matrix encoding of `a+bi`, determinant equals `normSq = a²+b²`, Euler's formula `exp(iθ) = cos θ + i·sin θ` derived via the matrix exponential path, polar decomposition of nonzero complex numbers into `r·(cos θ + i·sin θ)`, multiplicativity of `arg` modulo 2π, construction of the principal logarithm `Log z = ln|z| + i·Arg z` with `Arg ∈ (−π, π]`, and branch control lemmas bounding how `Arg` shifts under multiplication. The matrix representation is load-bearing: it makes `det` computations concrete and sidesteps abstract group-theory overhead that would otherwise require heavier Mathlib infrastructure.
+
+### [`lean/LogarithmExtensions.lean`](lean/LogarithmExtensions.lean)
+
+Six sections extending the branch-cut analysis begun in ComplexCore. The opening section proves the branch-cut discontinuity: `lim(t→0⁺) [Log(−1+it) − Log(−1−it)] = 2πi`, establishing that the imaginary part jumps by exactly 2π across the negative real axis. The next two sections build a recursive logarithm via the `Option` monad: `logStep` takes a candidate and returns `some` refined estimate or `none` on failure; `iterateOption` chains steps and a fixed-point theorem confirms convergence. Two IVT applications establish that the real exponential surjects onto positive reals, filling the analytic completeness needed for `Log`. The final three sections introduce the **negative-imaginary phase functor** — rotation by −90° (clockwise), verified to have period 4 in ℂ but period 2 in ZMod 2 — quadrant-II imaginary construction, and a triality of hypercomplex geometries parameterised by `k ∈ {−1, 0, +1}` corresponding to ℂ (elliptic/standard), dual numbers (parabolic/AutoDiff), and split-complex numbers (hyperbolic).
+
+### [`lean/DualNumbers.lean`](lean/DualNumbers.lean)
+
+Formalises the F₂ dual ring where `ε² = 0` and `ε ≠ 0`, then establishes the direct correspondence with PTX instruction `lop3.b32`. The ring axioms are proved over `ZMod 2 × ZMod 2` with componentwise addition and the rule `(a,b)·(c,d) = (ac, ad+bc)`. The file proves **clockwise termination**: the prime-sum-equals-2 condition (both bits = 1) is decidable in constant time via a single `lop3.b32` AND-with-mask evaluation, and the termination certificate is the F₂ dual multiplication table itself. The **period-2 correction** is the key result: `negImagFunctor` applied in F₂ has period 2, not the period 4 of the full complex plane — a distinction that is critical for CUDA kernels folding the phase functor into hardware instructions without lifting to ℂ.
+
+### [`lean/ComplexHashRing.lean`](lean/ComplexHashRing.lean)
+
+Establishes the complexity-class boundary for the imaginary hash and constructs the full ring infrastructure. `H(x) = (0, x)` — the embedding of a bitvector into the imaginary axis of `MyComplex n` — is proved to lie in **P** (decidable in O(n)), with an explicit argument that no NP-hardness reduction applies because the image is a fixed linear subspace. `fullHashEquiv` gives a ring isomorphism `BitVec n × BitVec n ≃ MyComplex n`, confirming the hash is a bijection at the type level. The file defines `MyComplexR R` as a `CommRing` over any `CommRing R`, proves `I² = −1` in `MyComplexR R`, shows `negImagFunctor` has period 4 in the general ring (collapsing to period 2 in `ZMod 2`), and constructs the scalar embedding ring homomorphism `R →+* MyComplexR R` needed for the module structure underlying the Q-Autuam intent metric.
+
+---
+
+## Hardware Implementations
+
+### [`hardware/dual_f2_ptx.cu`](hardware/dual_f2_ptx.cu)
+
+Bare-metal CUDA C targeting Ampere (`sm_80`). Implements F₂ dual-number arithmetic entirely within PTX inline assembly using `lop3.b32` — the three-input Boolean instruction whose 8-bit immediate encodes any Boolean function of three 32-bit registers. The kernel allocates no heap: all state lives in registers, with dual components packed into the high and low 16-bit halves of a single 32-bit word. The `lop3.b32` immediate for F₂ dual multiplication (`(a,b)·(c,d) = (ac, ad+bc mod 2)`) is computed from the truth table at compile time and embedded as a literal. This replaces a four-instruction naive sequence (AND, AND, XOR, AND) with a single PTX instruction. The clockwise termination check — prime-sum = 2 iff both bits = 1 — reduces to a single masked AND on the packed word, achieving in one cycle the decision that `DualNumbers.lean` certifies as correct.
+
+### [`hardware/dual_f2_qasm.qasm`](hardware/dual_f2_qasm.qasm)
+
+OpenQASM 3.0 circuit implementing the F₂ dual-number embedding as a quantum operation. An ancillary sink qubit absorbs the `ε² = 0` nilpotency condition: the ancilla is prepared in |0⟩ and any second-order term routes into it, leaving the first-order dual component on the primary register. The phase invariant `θ = 89/2462` appears as a rotation gate parameter — `rz(2π × 89/2462)` on the imaginary-component qubit — encoding the sovereign-compute structural constant directly into the quantum phase. The circuit verifies that the F₂ dual embedding commutes with this phase rotation: embedding then rotating gives the same result as rotating then embedding, the quantum analogue of the `negImagFunctor` commutativity proved in `DualNumbers.lean` and `ComplexHashRing.lean`.
 
 ---
 
